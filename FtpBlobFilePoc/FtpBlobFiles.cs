@@ -1,20 +1,18 @@
-﻿using Microsoft.Azure.WebJobs;
+﻿using Chilkat;
+using Microsoft.Azure.WebJobs;
 using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage.Auth;
 using Microsoft.WindowsAzure.Storage.Blob;
 using System;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Mime;
 using System.Threading.Tasks;
-using Chilkat;
 
 namespace FtpBlobFilePoc
 {
-    public static class Function1
+    public static class FtpBlobFiles
     {
-        [FunctionName("Function1")]
+        [FunctionName("FtpBlobFiles")]
         public static void Run([TimerTrigger("0 */1 * * * *")]TimerInfo myTimer, ILogger log)
         {
             var client = new CloudBlobClient(new Uri("https://rsmothersstorage.blob.core.windows.net"),
@@ -56,42 +54,40 @@ namespace FtpBlobFilePoc
             }
 
             log.LogInformation("Found blobs to ftp.");
+
+            Chilkat.Global obj = new Global();
+            obj.UnlockBundle("KARMAK.CBX032021_TDNDgEuT804Y");
+            SFtp sftp = new SFtp();
+            //bool success = sftp.Connect("karmakqasftp.westus.cloudapp.azure.com", 22);
+            bool success = true;
+            if (success)
+            {
+                log.LogInformation("Connected to sftp server.");
+                //success = sftp.AuthenticatePw("karmaksftp", "K@rmakQa2019");
+            }
+
+            if (success)
+            {
+                log.LogInformation("Successfully authenticated.");
+                //success = sftp.InitializeSftp();
+            }
+
+            if (!success)
+            {
+                log.LogError("Error initializing sftp.");
+                Console.WriteLine(sftp.LastErrorText);
+                return;
+            }
+
             foreach (var blob in blobs.Results)
             {
                 var blobFile = (CloudBlockBlob) blob;
-                log.LogInformation($"Ftp file {blobFile.Name}");
+                log.LogInformation($"Next file to upload: {blobFile.Name}");
 
-                Chilkat.Global obj = new Global();
-                obj.UnlockBundle("KARMAK.CBX032021_TDNDgEuT804Y");
-                SFtp sftp = new SFtp();
-                bool success = sftp.Connect("karmakqasftp.westus.cloudapp.azure.com", 22);
-                if (success)
-                {
-                    success = sftp.AuthenticatePw("karmaksftp", "K@rmakQa2019");
-                }
-
-                if (success)
-                {
-                    success = sftp.InitializeSftp();
-                }
-
-                if (!success)
-                {
-                    Console.WriteLine(sftp.LastErrorText);
-                    return;
-                }
-
-                var blobStream = GetBlob(blobFile);
-                StringBuilder sb = new StringBuilder();
-
-                var handle = sftp.OpenFile("/upload/testFile.xml", "readWrite", "createNew");
-                sftp.WriteFileBytes(handle, blobStream.Result.ToArray());
-                sftp.CloseHandle(handle);
-                
-                //client.UploadData(
-                //    "ftp://karmakqasftp.westus.cloudapp.azure.com/upload/testFile.xml", 
-                //    WebRequestMethods.Ftp.UploadFile, 
-                //    blobStream.Result.ToArray());
+                //var blobStream = GetBlob(blobFile);
+                //var handle = sftp.OpenFile("/upload/testFile.xml", "readWrite", "createNew");
+                //sftp.WriteFileBytes(handle, blobStream.Result.ToArray());
+                //sftp.CloseHandle(handle);
             }
         }
 

@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="ChilkatDnCore" Version="9.5.0.82" />
+    <PackageReference Include="Core.Framework.Authentication" Version="5.7.0.310" />
     <PackageReference Include="Microsoft.NET.Sdk.Functions" Version="3.0.5" />
   </ItemGroup>
   <ItemGroup>
