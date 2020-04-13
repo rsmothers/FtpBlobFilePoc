@@ -4,16 +4,20 @@ using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage.Auth;
 using Microsoft.WindowsAzure.Storage.Blob;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+using Task = Chilkat.Task;
 
 namespace FtpBlobFilePoc
 {
     public static class FtpBlobFiles
     {
         [FunctionName("FtpBlobFiles")]
-        public static void Run([TimerTrigger("0 */1 * * * *")]TimerInfo myTimer, ILogger log)
+        public static async System.Threading.Tasks.Task Run([TimerTrigger("0 */1 * * * *")]TimerInfo myTimer, ILogger log)
         {
             var client = new CloudBlobClient(new Uri("https://rsmothersstorage.blob.core.windows.net"),
                 new StorageCredentials(
@@ -29,6 +33,32 @@ namespace FtpBlobFilePoc
                     "testFolder",
                     log).Result,
                 log);
+
+            var authToken = await GetAuthToken();
+            log.LogInformation($"auth token acquired: {authToken}");
+        }
+
+        private static async Task<JToken> GetAuthToken()
+        {
+            // sftp credentials would come from the blob path. (account/user?)
+            // need auth token to access secrets and settings.  where will auth info come from?
+            var paramDictionary = new Dictionary<string, string>
+            {
+                { "client_id", "ryan_client" },
+                { "client_secret", "ryanclientsecret" },
+                { "account", "a14f84af-b3fb-4ac7-b610-1cf192a55ef6" },
+                { "user", "1223fdd3-e865-4e32-9aae-6e59061c21b3" },
+                { "branch", "eb6f62d9-0700-4bad-bcc6-595266a957fd" }
+            };
+
+            var httpAuthRequest = new HttpAuthRequest();
+            var jsonResult = await httpAuthRequest.MakeHttpRequest(
+                HttpMethod.Post,
+                Environment.GetEnvironmentVariable("AuthTokenUri"),
+                Environment.GetEnvironmentVariable("GatewayUrl"),
+                formUrlEncodedContent: httpAuthRequest.BuildFormUrlEncodedAuthContent(paramDictionary));
+
+            return jsonResult["access_token"];
         }
 
         private static async Task<BlobResultSegment> RetrieveBlobList(

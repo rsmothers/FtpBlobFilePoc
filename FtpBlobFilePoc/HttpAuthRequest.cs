@@ -1,3 +1,5 @@
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -6,30 +8,17 @@ using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Text;
 using System.Threading.Tasks;
-using Elk.Core.Framework.Authentication;
-using Karmak.ELK.Framework.RestCommunication;
-using Microsoft.ApplicationInsights;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace FtpBlobFilePoc
 {
-    public static class GetAuthToken
+    public class HttpAuthRequest
     {
-        [FunctionName("GetAuthToken")]
-        public static async Task<JToken> Run(
-            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            ILogger log)
-        {
-            log.LogInformation("GetAuthToken HTTP trigger function processed a request.");
+        public static HttpClient HttpClient = new HttpClient();
 
+        public async Task<Dictionary<string, string>> BuildParamsDictionary(Stream requestBody)
+        {
             var paramDictionary = new Dictionary<string, string>();
-            string body = await new StreamReader(req.Body).ReadToEndAsync();
+            string body = await new StreamReader(requestBody).ReadToEndAsync();
             var array = body.Split('&');
             foreach (var param in array)
             {
@@ -37,25 +26,43 @@ namespace FtpBlobFilePoc
                 paramDictionary.Add(kvp[0], kvp[1]);
             }
 
-            var jsonResult = await MakeHttpRequest(
-                HttpMethod.Post,
-                Environment.GetEnvironmentVariable("AuthTokenUri"),
-                Environment.GetEnvironmentVariable("GatewayUrl"),
-                formUrlEncodedContent: new List<KeyValuePair<string, string>>
-                {
-                    new KeyValuePair<string, string>("client_id", paramDictionary["client_id"]),
-                    new KeyValuePair<string, string>("client_secret", paramDictionary["client_secret"]),
-                    new KeyValuePair<string, string>("scope", "api"),
-                    new KeyValuePair<string, string>("grant_type", "karmak_identity"),
-                    new KeyValuePair<string, string>("integration_test_authority", paramDictionary["integration_test_authority"])
-                });
-
-            return jsonResult["access_token"];
+            return paramDictionary;
         }
 
-        public static HttpClient HttpClient = new HttpClient();
+        public List<KeyValuePair<string, string>> BuildFormUrlEncodedAuthContent(Dictionary<string, string> paramDictionary)
+        {
+            var formUrlEncodedContent = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("client_id", paramDictionary["client_id"]),
+                new KeyValuePair<string, string>("client_secret", paramDictionary["client_secret"]),
+                new KeyValuePair<string, string>("scope", "api"),
+                new KeyValuePair<string, string>("grant_type", "karmak_identity")
+            };
 
-        private static async Task<JToken> MakeHttpRequest(
+            if (paramDictionary.ContainsKey("integration_test_authority"))
+            {
+                formUrlEncodedContent.Add(new KeyValuePair<string, string>("integration_test_authority", paramDictionary["integration_test_authority"]));
+            }
+
+            if (paramDictionary.ContainsKey("account"))
+            {
+                formUrlEncodedContent.Add(new KeyValuePair<string, string>("account", paramDictionary["account"]));
+            }
+
+            if (paramDictionary.ContainsKey("branch"))
+            {
+                formUrlEncodedContent.Add(new KeyValuePair<string, string>("branch", paramDictionary["branch"]));
+            }
+
+            if (paramDictionary.ContainsKey("user"))
+            {
+                formUrlEncodedContent.Add(new KeyValuePair<string, string>("user", paramDictionary["user"]));
+            }
+
+            return formUrlEncodedContent;
+        }
+
+        public async Task<JToken> MakeHttpRequest(
             HttpMethod httpMethod,
             string requestUri,
             string baseAddress = null,
