@@ -51,6 +51,7 @@ namespace FtpBlobFilePoc
         {
             // credentials would come from an alias lookup against the container name and pipeline client id/secret.
             // need auth token to access secrets and settings.
+            // or would credentials come from blob path and split into identity parts for auth token?
             var paramDictionary = new Dictionary<string, string>
             {
                 { "client_id", "ryan_client" },
@@ -92,13 +93,13 @@ namespace FtpBlobFilePoc
             log.LogInformation("Found blobs to ftp.");
 
             // get settings.  can we do this without implicit elk context in settings client since unsure if can hook up middleware?
-            // is table storage a better option if the above proves to be a challenge?
+            // is table storage a better option if the above proves to be a challenge? or a new http settings client?
 
             Chilkat.Global obj = new Global();
             obj.UnlockBundle("KARMAK.CBX032021_TDNDgEuT804Y");
             SFtp sftp = new SFtp();
             bool success = sftp.Connect("karmakqasftp.westus.cloudapp.azure.com", 22);
-            //bool success = true;
+
             if (success)
             {
                 log.LogInformation("Connected to sftp server.");
@@ -123,18 +124,18 @@ namespace FtpBlobFilePoc
                 var blobFile = (CloudBlockBlob) blob;
                 log.LogInformation($"Next file to upload: {blobFile.Name}");
 
-                var blobStream = GetBlob(blobFile);
+                var blobStream = GetBlobStream(blobFile);
                 var handle = sftp.OpenFile("/upload/testFile.xml", "readWrite", "createNew");
                 sftp.WriteFileBytes(handle, blobStream.Result.ToArray());
                 sftp.CloseHandle(handle);
-
                 log.LogInformation("File successfully uploaded.");
+
                 blobFile.DeleteAsync();
                 log.LogInformation("Blob removed from container.");
             }
         }
 
-        private async Task<MemoryStream> GetBlob(
+        private async Task<MemoryStream> GetBlobStream(
             CloudBlockBlob file)
         {
             var ms = new MemoryStream();

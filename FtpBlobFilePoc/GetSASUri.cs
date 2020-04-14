@@ -18,7 +18,7 @@ namespace FtpBlobFilePoc
             log.LogInformation("Request new container sas token.");
 
             // assume we are taking the auth token from the http request and pulling account, branch, user from it here
-            // may not be able to hook in middleware for explicitelkcontext - might need to custom roll code to decrypt rsa256 to get headers manually
+            // may not be able to hook in middleware for explicitelkcontext
 
             // here we query settings to obtain the container name - stubbed for poc purposes
             var containerName = "ftp-blob-file-poc";
@@ -46,7 +46,7 @@ namespace FtpBlobFilePoc
 
             var sasToken = container.GetSharedAccessSignature(sasPolicy, null);
 
-            log.LogInformation($"New token provided for ftp-blob-file-poc container: {container.Uri + sasToken}");
+            log.LogInformation($"New token provided for container - {containerName}.");
 
             return container.Uri + sasToken;
         }
