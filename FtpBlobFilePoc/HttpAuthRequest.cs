@@ -59,6 +59,11 @@ namespace FtpBlobFilePoc
                 formUrlEncodedContent.Add(new KeyValuePair<string, string>("user", paramDictionary["user"]));
             }
 
+            if (paramDictionary.ContainsKey(("ContainerName")))
+            {
+                formUrlEncodedContent.Add(new KeyValuePair<string, string>("ContainerName", paramDictionary["ContainerName"]));
+            }
+
             return formUrlEncodedContent;
         }
 
