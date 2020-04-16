@@ -38,6 +38,7 @@ namespace FtpBlobFilePoc
             foreach (var container in jsonContainerList.containers)
             {
                 FtpBlobStreams(
+                    client.GetContainerReference(container.ToString()),
                     RetrieveBlobList(
                         client,
                         container.ToString(),
@@ -49,13 +50,10 @@ namespace FtpBlobFilePoc
 
         private async Task<JToken> GetAuthToken(string account, string branch, string user)
         {
-            // credentials would come from an alias lookup against the container name and pipeline client id/secret.
-            // need auth token to access secrets and settings.
-            // or would credentials come from blob path and split into identity parts for auth token?
             var paramDictionary = new Dictionary<string, string>
             {
-                { "client_id", "ryan_client" },
-                { "client_secret", "ryanclientsecret" },
+                { "client_id", Environment.GetEnvironmentVariable("client_id") },
+                { "client_secret", Environment.GetEnvironmentVariable("client_secret") },
                 { "account", account },
                 { "branch", branch },
                 { "user", user }
@@ -84,8 +82,10 @@ namespace FtpBlobFilePoc
                 .ListBlobsSegmentedAsync(null);
         }
 
-        private async Task FtpBlobStreams(BlobResultSegment blobs, ILogger log)
+        private async Task FtpBlobStreams(CloudBlobContainer container, BlobResultSegment blobs, ILogger log)
         {
+            await StubBlobContainerMetadata(container);
+
             if (!blobs.Results.Any())
             {
                 log.LogInformation("No blobs to ftp.");
@@ -100,6 +100,14 @@ namespace FtpBlobFilePoc
             obj.UnlockBundle("KARMAK.CBX032021_TDNDgEuT804Y");
 
             SFtp sftp = new SFtp();
+
+            // resolve to auth token from container identity metadata
+            var authToken = await GetAuthToken(
+                ExtractMetadataValue(container, "X-Elk-Identity-Account"),
+                ExtractMetadataValue(container, "X-Elk-Identity-Branch"),
+                ExtractMetadataValue(container, "X-Elk-Identity-User"));
+
+            log.LogInformation($"auth token acquired: {authToken}");
 
             // these will come from settings via container metadata
             bool success = sftp.Connect("karmakqasftp.westus.cloudapp.azure.com", 22);
@@ -128,20 +136,12 @@ namespace FtpBlobFilePoc
                 var blobFile = (CloudBlockBlob) blob;
                 log.LogInformation($"Next file to upload: {blobFile.Name}");
 
-                await StubBlobMetadata(blobFile);
-
                 await blobFile.FetchAttributesAsync();
                 log.LogInformation("Extracting identity metadata from blob file.");
 
-                // resolve to auth token from blob file identity metadata
-                var authToken = await GetAuthToken(
-                    ExtractMetadataValue(blobFile, "X-Elk-Identity-Account"),
-                    ExtractMetadataValue(blobFile, "X-Elk-Identity-Branch"),
-                        ExtractMetadataValue(blobFile, "X-Elk-Identity-User"));
-
-                log.LogInformation($"auth token acquired: {authToken}");
-                
                 var blobStream = GetBlobStream(blobFile);
+
+                log.LogInformation($"Uploading {blobFile.Name}");
                 var handle = sftp.OpenFile("/upload/testFile.xml", "readWrite", "createNew");
                 sftp.WriteFileBytes(handle, blobStream.Result.ToArray());
                 sftp.CloseHandle(handle);
@@ -152,18 +152,18 @@ namespace FtpBlobFilePoc
             }
         }
 
-        private async Task StubBlobMetadata(CloudBlockBlob blobFile)
+        private async Task StubBlobContainerMetadata(CloudBlobContainer container)
         {
             // stubbing the metadata on this blob for poc purposes
-            blobFile.Metadata.Add("X_Elk_Identity_Account", "a14f84af_b3fb_4ac7_b610_1cf192a55ef6");
-            blobFile.Metadata.Add("X_Elk_Identity_Branch", "eb6f62d9_0700_4bad_bcc6_595266a957fd");
-            blobFile.Metadata.Add("X_Elk_Identity_User", "1223fdd3_e865_4e32_9aae_6e59061c21b3");
-            await blobFile.SetMetadataAsync();
+            container.Metadata.Add("X_Elk_Identity_Account", "a14f84af_b3fb_4ac7_b610_1cf192a55ef6");
+            container.Metadata.Add("X_Elk_Identity_Branch", "eb6f62d9_0700_4bad_bcc6_595266a957fd");
+            container.Metadata.Add("X_Elk_Identity_User", "1223fdd3_e865_4e32_9aae_6e59061c21b3");
+            await container.SetMetadataAsync();
         }
 
-        private string ExtractMetadataValue(CloudBlockBlob blobFile, string key)
+        private string ExtractMetadataValue(CloudBlobContainer container, string key)
         {
-            var value = blobFile.Metadata[key.Replace('-','_')];
+            var value = container.Metadata[key.Replace('-','_')];
 
             return value.Replace('_', '-');
         }
