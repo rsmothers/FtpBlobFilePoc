@@ -9,14 +9,17 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
+using Microsoft.Azure.WebJobs.Extensions.Http;
 using Newtonsoft.Json.Linq;
+using HttpRequest = Microsoft.AspNetCore.Http.HttpRequest;
 
 namespace FtpBlobFilePoc
 {
     public class FtpBlobFiles
     {
         [FunctionName("FtpBlobFiles")]
-        public async System.Threading.Tasks.Task Run([TimerTrigger("0 */5 * * * *")]TimerInfo myTimer, ILogger log)
+        public async System.Threading.Tasks.Task Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
         {
             var client = new CloudBlobClient(new Uri(Environment.GetEnvironmentVariable("StorageUri")),
                 new StorageCredentials(
