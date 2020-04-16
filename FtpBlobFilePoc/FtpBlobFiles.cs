@@ -1,24 +1,26 @@
 ﻿using Chilkat;
 using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage.Auth;
 using Microsoft.WindowsAzure.Storage.Blob;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Newtonsoft.Json.Linq;
 using HttpRequest = Microsoft.AspNetCore.Http.HttpRequest;
+using Task = System.Threading.Tasks.Task;
 
 namespace FtpBlobFilePoc
 {
     public class FtpBlobFiles
     {
         [FunctionName("FtpBlobFiles")]
-        public async System.Threading.Tasks.Task Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+        public async Task Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
             ILogger log)
         {
             var client = new CloudBlobClient(new Uri(Environment.GetEnvironmentVariable("StorageUri")),
@@ -29,28 +31,23 @@ namespace FtpBlobFilePoc
             log.LogInformation($"Check for files to ftp: {DateTime.Now}");
 
             // get list of containers via config or table storage? - stub now for poc
-            var containerList = new List<string>
-            {
-                "ftp-blob-file-poc"
-            };
+            var body = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic jsonContainerList = JsonConvert.DeserializeObject(body);
 
             // for each container, check for files.  if files exist, get sftp settings for uploading.
-            foreach (var containerName in containerList)
+            foreach (var container in jsonContainerList.containers)
             {
-                var authToken = await GetAuthToken(containerName);
-                log.LogInformation($"auth token acquired: {authToken}");
-
                 FtpBlobStreams(
                     RetrieveBlobList(
                         client,
-                        containerName,
+                        container.ToString(),
                         "testFolder",
                         log).Result,
                     log);
             }
         }
 
-        private async Task<JToken> GetAuthToken(string containerName)
+        private async Task<JToken> GetAuthToken(string account, string branch, string user)
         {
             // credentials would come from an alias lookup against the container name and pipeline client id/secret.
             // need auth token to access secrets and settings.
@@ -59,7 +56,9 @@ namespace FtpBlobFilePoc
             {
                 { "client_id", "ryan_client" },
                 { "client_secret", "ryanclientsecret" },
-                { "ContainerName", containerName }
+                { "account", account },
+                { "branch", branch },
+                { "user", user }
             };
 
             var httpAuthRequest = new HttpAuthRequest();
@@ -85,7 +84,7 @@ namespace FtpBlobFilePoc
                 .ListBlobsSegmentedAsync(null);
         }
 
-        private void FtpBlobStreams(BlobResultSegment blobs, ILogger log)
+        private async Task FtpBlobStreams(BlobResultSegment blobs, ILogger log)
         {
             if (!blobs.Results.Any())
             {
@@ -94,13 +93,15 @@ namespace FtpBlobFilePoc
             }
 
             log.LogInformation("Found blobs to ftp.");
-
-            // get settings.  can we do this without implicit elk context in settings client since unsure if can hook up middleware?
-            // is table storage a better option if the above proves to be a challenge? or a new http settings client?
-
+            
             Chilkat.Global obj = new Global();
+
+            // this will come from key vault
             obj.UnlockBundle("KARMAK.CBX032021_TDNDgEuT804Y");
+
             SFtp sftp = new SFtp();
+
+            // these will come from settings via container metadata
             bool success = sftp.Connect("karmakqasftp.westus.cloudapp.azure.com", 22);
 
             if (success)
@@ -127,24 +128,51 @@ namespace FtpBlobFilePoc
                 var blobFile = (CloudBlockBlob) blob;
                 log.LogInformation($"Next file to upload: {blobFile.Name}");
 
+                await StubBlobMetadata(blobFile);
+
+                await blobFile.FetchAttributesAsync();
+                log.LogInformation("Extracting identity metadata from blob file.");
+
+                // resolve to auth token from blob file identity metadata
+                var authToken = await GetAuthToken(
+                    ExtractMetadataValue(blobFile, "X-Elk-Identity-Account"),
+                    ExtractMetadataValue(blobFile, "X-Elk-Identity-Branch"),
+                        ExtractMetadataValue(blobFile, "X-Elk-Identity-User"));
+
+                log.LogInformation($"auth token acquired: {authToken}");
+                
                 var blobStream = GetBlobStream(blobFile);
                 var handle = sftp.OpenFile("/upload/testFile.xml", "readWrite", "createNew");
                 sftp.WriteFileBytes(handle, blobStream.Result.ToArray());
                 sftp.CloseHandle(handle);
                 log.LogInformation("File successfully uploaded.");
 
-                blobFile.DeleteAsync();
+                await blobFile.DeleteAsync();
                 log.LogInformation("Blob removed from container.");
             }
+        }
+
+        private async Task StubBlobMetadata(CloudBlockBlob blobFile)
+        {
+            // stubbing the metadata on this blob for poc purposes
+            blobFile.Metadata.Add("X_Elk_Identity_Account", "a14f84af_b3fb_4ac7_b610_1cf192a55ef6");
+            blobFile.Metadata.Add("X_Elk_Identity_Branch", "eb6f62d9_0700_4bad_bcc6_595266a957fd");
+            blobFile.Metadata.Add("X_Elk_Identity_User", "1223fdd3_e865_4e32_9aae_6e59061c21b3");
+            await blobFile.SetMetadataAsync();
+        }
+
+        private string ExtractMetadataValue(CloudBlockBlob blobFile, string key)
+        {
+            var value = blobFile.Metadata[key.Replace('-','_')];
+
+            return value.Replace('_', '-');
         }
 
         private async Task<MemoryStream> GetBlobStream(
             CloudBlockBlob file)
         {
             var ms = new MemoryStream();
-
             await file.DownloadToStreamAsync(ms);
-
             return ms;
         }
     }
